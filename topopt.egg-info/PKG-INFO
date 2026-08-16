@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: topopt
+Version: 0.1.0
+Summary: Topology optimization via lattice Boltzmann
+Requires-Python: >=3.10
+Requires-Dist: numpy
+Requires-Dist: numba
+Requires-Dist: scipy
+Requires-Dist: matplotlib
+Requires-Dist: lbm @ git+https://github.com/r-i-p-dance/lbm-2d-python.git@main
