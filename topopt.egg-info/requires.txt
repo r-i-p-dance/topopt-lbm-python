@@ -1,5 +1,0 @@
-numpy
-numba
-scipy
-matplotlib
-lbm @ git+https://github.com/r-i-p-dance/lbm-2d-python.git@main
