@@ -66,7 +66,27 @@ class AdjointLattice(BaseLattice):
         for i in range(9):
             f_adj_eq[i] = A + B_x * (cx[i] - ux) + B_y * (cy[i] - uy)
 
-        return f_adj_eq
+    #     return f_adj_eq
+
+    def macro(self):
+        """Adjoint first moments, WITHOUT dividing by sum(f).
+
+        The forward divides momentum by rho = sum(f), which is a physical
+        density near 1. The adjoint's sum(f_hat) is not a density: it is an
+        arbitrary moment that can pass through zero, so dividing by it
+        produces spurious spikes of 1e4-1e5 at cells where the positive and
+        negative components happen to cancel — even though f_hat itself stays
+        bounded within +/-0.15. Those spikes are a visualisation artifact,
+        not a feature of the adjoint field.
+
+        These moments are diagnostic only; the sensitivity contracts self.g
+        against f_neq and never reads them.
+        """
+        self.rho[:] = np.sum(self.f, axis=0)
+        self.ux[:] = np.einsum("kij,k->ij", self.f, self.cx.astype(np.float64))
+        self.uy[:] = np.einsum("kij,k->ij", self.f, self.cy.astype(np.float64))
+        self.ux[self.obstacle] = 0.0
+        self.uy[self.obstacle] = 0.0
 
     def collision(self):
         self.g = self.f.copy()        # state before C^T, for the sensitivity
