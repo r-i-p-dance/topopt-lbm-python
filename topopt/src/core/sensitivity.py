@@ -2,7 +2,7 @@ import numpy as np
 from topopt.src.core.brinkman import d_alpha_d_rho_bar
 from topopt.src.core.projection import d_heaviside_d_rho_e
 
-def assemble_sensitivity(forward, adjoint, alpha_max, q, beta, eta=0.5):
+def assemble_sensitivity(forward, adjoint, alpha_max, beta, q, eta=0.5):
     """G_e = dalpha/drho_bar * drho_bar/drho_e * [ |u|^2 + (omega^2/2) * sum_i(g_i * f_neq_i) ]
 
     Explicit term  : dJ/dalpha at fixed f, = |u|^2.
