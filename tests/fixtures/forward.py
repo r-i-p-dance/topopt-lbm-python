@@ -1,4 +1,4 @@
-from topopt.src.core.brinkman_mixin import BrinkmanMixin
+from topopt.src.core.forward import BrinkmanMixin
 from lbm.src.cases.pressure import PressurePoiseuille
 
 class PressureBrinkman(BrinkmanMixin, PressurePoiseuille):
