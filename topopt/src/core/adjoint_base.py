@@ -1,7 +1,7 @@
 import numpy as np
 from lbm.src.core.lattice import BaseLattice
 from topopt.src.core.objective import dJ_df
-from lbm.src.core.kernels import stream_kernel
+from lbm.src.core.kernels import adjoint_collide_kernel, stream_kernel
     
 
 class AdjointLattice(BaseLattice):
@@ -30,43 +30,6 @@ class AdjointLattice(BaseLattice):
         )
         self.neg_cx = -forward.cx
         self.neg_cy = -forward.cy
-
-    def adjoint_equilibrium(self):
-        """f_adj_eq = A + B_x*(c_ix - u_x) + B_y*(c_iy - u_y)
-    
-        where the moments carry the derivative structure of the forward equilibrium:
-            A   = sum_j w_j * E_j    * f_hat_j
-            B_x = sum_j w_j * D_jx  * f_hat_j
-            B_y = sum_j w_j * D_jy  * f_hat_j
-        with
-            E_j  = 1 + 3(c_j·u) + 9/2*(c_j·u)^2 - 3/2*|u|^2
-            D_jx = 3*c_jx + 9*(c_j·u)*c_jx - 3*u_x
-            D_jy = 3*c_jy + 9*(c_j·u)*c_jy - 3*u_y
-        """
-        f = self.fwd
-        w, cx, cy = f.w, f.cx, f.cy
-        ux, uy = f.ux, f.uy
-
-        # Compute c_j · u for each direction j at every cell
-        cu = cx[:, None, None] * ux[None, :, :] + cy[:, None, None] * uy[None, :, :]
-        usq = ux**2 + uy**2
-
-        # E_j and D_j at every cell (shape: 9, nx, ny)
-        E = 1.0 + 3.0 * cu + 4.5 * cu**2 - 1.5 * usq[None, :, :]
-        D_x = 3.0 * cx[:, None, None] + 9.0 * cu * cx[:, None, None] - 3.0 * ux[None, :, :]
-        D_y = 3.0 * cy[:, None, None] + 9.0 * cu * cy[:, None, None] - 3.0 * uy[None, :, :]
-
-        # Moments A, B_x, B_y — contract f_hat against these weightings
-        A   = np.sum(w[:, None, None] * E   * self.f, axis=0)
-        B_x = np.sum(w[:, None, None] * D_x * self.f, axis=0)
-        B_y = np.sum(w[:, None, None] * D_y * self.f, axis=0)
-
-        # Build f_adj_eq: A + B_x*(c_ix - u_x) + B_y*(c_iy - u_y)
-        f_adj_eq = np.zeros_like(self.f)
-        for i in range(9):
-            f_adj_eq[i] = A + B_x * (cx[i] - ux) + B_y * (cy[i] - uy)
-
-    #     return f_adj_eq
 
     def macro(self):
         """Adjoint first moments, WITHOUT dividing by sum(f).
@@ -105,5 +68,17 @@ class AdjointLattice(BaseLattice):
         self.apply_boundary_conditions()
         self.stream()                       
         self.bounce_back_obstacle()
-        self.collision()                   
-        
+        self.collision()           
+
+    def update_source(self):
+        """Recompute the adjoint source from the current forward solution.
+        Call after the forward has been re-converged for a new design."""
+        self.source = dJ_df(
+            self.fwd.rho_bar, self.fwd.ux, self.fwd.uy, self.fwd.rho,
+            self.fwd.cx, self.fwd.cy, self.fwd.alpha_max, self.fwd.q)        
+
+    def check_stability_running(self):
+        """No-op. The adjoint field is a sensitivity, not a fluid velocity;
+        its moments have no Mach interpretation. Stability of the adjoint is
+        governed by rho(M^T) = rho(M), which the forward's own check covers."""
+        pass
