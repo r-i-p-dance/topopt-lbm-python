@@ -69,14 +69,10 @@ class AdjointLattice(BaseLattice):
         return f_adj_eq
 
     def collision(self):
-        self.g = self.f.copy()
-        
-        fluid = ~self.fwd.obstacle
-        # apply collision only at fluid cells
-        f_adj_eq = self.adjoint_equilibrium()
-        self.f[:, fluid] = (self.f[:, fluid]
-                    - self.fwd.omega_eff[None, fluid] * (self.f[:, fluid] - f_adj_eq[:, fluid])
-                    + self.source[:, fluid])
+        self.g = self.f.copy()        # state before C^T, for the sensitivity
+        adjoint_collide_kernel(self.f, self.fwd.ux, self.fwd.uy,
+                               self.fwd.omega_eff, self.source,
+                               self.w, self.cx, self.cy, self.obstacle)
 
     def stream(self):
         stream_kernel(self.f, self.f_new, self.neg_cx, self.neg_cy, self.fwd.periodic_x)
