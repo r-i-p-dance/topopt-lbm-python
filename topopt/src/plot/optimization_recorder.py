@@ -44,7 +44,6 @@ class OptimizationRecorder:
         self.dpi = dpi
         self.gamma = gamma
         self.vmax_fwd = vmax_fwd
-        self.cmap = style.SEQUENTIAL
         self.bitrate = bitrate
         self.path = None
         self.nx = self.ny = None
@@ -77,11 +76,11 @@ class OptimizationRecorder:
         z = np.zeros((nx, ny))
         vf = self.vmax_fwd if self.vmax_fwd is not None else 1.0
 
-        self.img1 = self.ax1.imshow(
-            z.T, cmap=style.SEQUENTIAL_COOL, origin="lower", aspect="auto",
+        self.img1 = self.ax1.imshow(          # forward velocity: physical
+            z.T, cmap=style.SEQUENTIAL_FLOW, origin="lower", aspect="auto",
             norm=mcolors.PowerNorm(gamma=self.gamma, vmin=0.0, vmax=vf))
-        self.img2 = self.ax2.imshow(
-            z.T, cmap=style.SEQUENTIAL_WARM, origin="lower", aspect="auto",
+        self.img2 = self.ax2.imshow(          # adjoint momentum: dual
+            z.T, cmap=style.SEQUENTIAL_DUAL, origin="lower", aspect="auto",
             norm=mcolors.PowerNorm(gamma=self.gamma, vmin=0.0, vmax=1.0))
         self.img3 = self.ax3.imshow(
             z.T, cmap=style.DIVERGING, origin="lower", aspect="auto",
