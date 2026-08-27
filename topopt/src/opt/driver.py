@@ -108,6 +108,15 @@ class TopOptDriver:
             fwd.update_design(rho_e, alpha_max=alpha_max, beta=beta)
             fwd.converge(tol=solver_tol)
 
+            if hasattr(fwd, "outlet_fluxes"):
+                flux_east, flux_south = fwd.outlet_fluxes()
+                total_flux = abs(flux_east) + abs(flux_south) + 1e-30
+                split = abs(flux_east) / total_flux
+                flux_text = (f"qE={flux_east:+.3e} qS={flux_south:+.3e} "
+                             f"split={split:.3f}  dP_in={fwd.inlet_pressure_drop():+.2e}  ")
+            else:
+                flux_text = ""
+
             adj.update_source()
             adj.converge(tol=solver_tol)
 
@@ -166,6 +175,7 @@ class TopOptDriver:
             
 
             log(f"it {it:4d}  J={J:.6e}  vol={volume:.4f}  "
+                f"{flux_text}"
                 f"grey={grey:.3f}  dmax={change_max:.3e} "
                 f"dmean={change_mean:.3e}  |G|max={float(np.max(np.abs(G))):.2e}  "
                 f"lam={self.optimizer.lam:+.3e}  "
