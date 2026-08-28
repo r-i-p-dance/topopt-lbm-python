@@ -12,13 +12,18 @@ class PressureForkCase(BaseCase):
     versus by the geometry of the domain.
     """
 
-    def __init__(self, *args, rho_east=1.0, rho_south=0.999,
+    def __init__(self, outlet_asymmetry=1e-3, less_pressure="south",
                  inlet_lo=0.7, inlet_hi=0.9,
                  outlet_lo=0.7, outlet_hi=0.9, **kwargs):
-        self.rho_east, self.rho_south = rho_east, rho_south
+
+        if less_pressure not in ("south", "east"):
+            raise ValueError("less_pressure must be 'south' or 'east'")
+        self.outlet_asymmetry = outlet_asymmetry
+        self.rho_east = 1.0 - (outlet_asymmetry if less_pressure == "east" else 0.0)
+        self.rho_south = 1.0 - (outlet_asymmetry if less_pressure == "south" else 0.0)
         self.inlet_lo, self.inlet_hi = inlet_lo, inlet_hi
         self.outlet_lo, self.outlet_hi = outlet_lo, outlet_hi
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
     def _setup_geometry(self):
         nx, ny = self.nx, self.ny
