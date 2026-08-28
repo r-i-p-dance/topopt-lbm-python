@@ -21,19 +21,18 @@ class PressureForkForward(BrinkmanLattice):
     boundary condition compete evenly with geometry for the flow split.
     """
 
-    def __init__(self, Re=1.0, rho_east=1.0, rho_south=1.0,
-                 inlet_lo=0.7, inlet_hi=0.9,
-                 outlet_lo=0.7, outlet_hi=0.9, **kwargs):
+    def __init__(self, Re, rho_east, rho_south,
+                 inlet_lo, inlet_hi,
+                 outlet_lo, outlet_hi, **kwargs):
         super().__init__(**kwargs)
-
+        self.rho_east = rho_east
+        self.rho_south = rho_south
         self.j_from = int(inlet_lo * self.ny)
         self.j_to = int(inlet_hi * self.ny)
         self.i_from = int(outlet_lo * self.nx)
         self.i_to = int(outlet_hi * self.nx)
         self.i_east = self.nx - 1
 
-        self.rho_east = rho_east
-        self.rho_south = rho_south
         self.periodic_x = True          # streaming must be a permutation
 
         self.inlet_width = self.j_to - self.j_from
