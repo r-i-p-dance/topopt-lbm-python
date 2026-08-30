@@ -12,16 +12,15 @@ class PipeBendForward(BrinkmanLattice):
     across resolutions. Re is based on the inlet width.
     """
 
-    def __init__(self, Re=10.0, rho_out=1.0,
-                 inlet_lo=0.7, inlet_hi=0.9,
-                 outlet_lo=0.7, outlet_hi=0.9, **kwargs):
+    def __init__(self, Re, inlet_lo, inlet_hi,
+                 outlet_lo, outlet_hi, **kwargs):
         super().__init__(**kwargs)
 
         self.j_from = int(inlet_lo * self.ny)
         self.j_to = int(inlet_hi * self.ny)
         self.i_from = int(outlet_lo * self.nx)
         self.i_to = int(outlet_hi * self.nx)
-        self.rho_out = rho_out
+        self.rho_out = 1.0
         self.periodic_x = True          # streaming must be a permutation
 
         # Re on the inlet width: set Re, derive u_max

@@ -8,13 +8,13 @@ class PipeBendCase(BaseCase):
     """Fluid enters the west wall and must exit the south wall; the optimizer
     carves a bent channel connecting them."""
 
-    def __init__(self, *args, inlet_lo=0.7, inlet_hi=0.9,
+    def __init__(self, inlet_lo=0.7, inlet_hi=0.9,
                  outlet_lo=0.7, outlet_hi=0.9, **kwargs):
         self.inlet_lo = inlet_lo
         self.inlet_hi = inlet_hi
         self.outlet_lo = outlet_lo
         self.outlet_hi = outlet_hi
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
     def _setup_geometry(self):
         nx, ny = self.nx, self.ny
