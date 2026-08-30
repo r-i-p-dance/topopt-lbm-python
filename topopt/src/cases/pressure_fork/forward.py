@@ -21,24 +21,41 @@ class PressureForkForward(BrinkmanLattice):
     boundary condition compete evenly with geometry for the flow split.
     """
 
-    def __init__(self, Re, rho_east, rho_south,
-                 inlet_lo, inlet_hi,
+    def __init__(self, Re, xi, less_pressure, inlet_lo, inlet_hi,
                  outlet_lo, outlet_hi, **kwargs):
         super().__init__(**kwargs)
-        self.rho_east = rho_east
-        self.rho_south = rho_south
+
+        if less_pressure not in ("south", "east"):
+            raise ValueError("less_pressure must be 'south' or 'east'")
+        if not 0.0 <= xi < 1.0:
+            raise ValueError(
+                f"xi = {xi} outside [0, 1). At xi = 1 the favoured outlet "
+                f"takes all the flow and the other carries zero; above it "
+                f"the other outlet reverses and becomes an inlet. Use "
+                f"xi <= 0.7 for margin, since d_rho_nat only estimates the "
+                f"branch resistance.")
+
         self.j_from = int(inlet_lo * self.ny)
         self.j_to = int(inlet_hi * self.ny)
         self.i_from = int(outlet_lo * self.nx)
         self.i_to = int(outlet_hi * self.nx)
         self.i_east = self.nx - 1
+        self.inlet_width = self.j_to - self.j_from
+
+        self.Re = Re
+        self.u_max = Re * self.nu / self.inlet_width
+
+        # Derive the outlet densities from the dimensionless asymmetry.
+        # Both are computable before any solve: nu comes from tau, u_max
+        # from Re, and the geometry from the grid.
+        self.xi = xi
+        self.less_pressure = less_pressure
+        self.outlet_asymmetry = xi * self.natural_pressure_scale()
+        self.rho_east = 1.0 - (self.outlet_asymmetry if less_pressure == "east" else 0.0)
+        self.rho_south = 1.0 - (self.outlet_asymmetry if less_pressure == "south" else 0.0)
 
         self.periodic_x = True          # streaming must be a permutation
 
-        self.inlet_width = self.j_to - self.j_from
-        self.Re = Re
-        self.u_max = Re * self.nu / self.inlet_width
-        
         self.u_profile = self.analytical_profile()
         self._check_stability_at_init()
         self._build_walls()
