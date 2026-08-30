@@ -76,20 +76,20 @@ class TripleSplitForward(BrinkmanLattice):
 
         self.u_profile = self._scaled_profile(self.inlet_width, 1.0,
                                               self.u_max, sign=+1.0)
-        self.q_in = float(np.sum(self.u_profile))
+        self.flux_in = float(np.sum(self.u_profile))
 
         # Outlet profiles: shape chosen first, then rescaled by the DISCRETE
         # sum so each flux is exactly split_k * Q_in. A parabola summed over
         # a handful of cells differs from its integral by several percent,
         # and that error would appear directly as a wrong split.
         self.u_profile_o1 = self._scaled_profile(
-            self.j_o1_to - self.j_o1_from, split_1 * self.q_in, sign=+1.0)
+            self.j_o1_to - self.j_o1_from, split_1 * self.flux_in, sign=+1.0)
         self.u_profile_o2 = self._scaled_profile(
-            self.j_o2_to - self.j_o2_from, split_2 * self.q_in, sign=+1.0)
+            self.j_o2_to - self.j_o2_from, split_2 * self.flux_in, sign=+1.0)
 
-        self.q_o1_target = split_1 * self.q_in
-        self.q_o2_target = split_2 * self.q_in
-        self.q_o3_target = self.split_3 * self.q_in
+        self.q_o1_target = split_1 * self.flux_in
+        self.q_o2_target = split_2 * self.flux_in
+        self.q_o3_target = self.split_3 * self.flux_in
 
         self._check_stability_at_init()
         self._build_walls()
@@ -172,7 +172,7 @@ class TripleSplitForward(BrinkmanLattice):
         A growing residual means two boundary ranges overlap.
         """
         q1, q2, q3 = self.outlet_fluxes()
-        return (self.q_in - q1 - q2 - q3) / self.q_in
+        return (self.flux_in - q1 - q2 - q3) / self.flux_in
 
     def inlet_density(self):
         """Mean rho at the inlet, derived by the velocity BC. Diagnostic
@@ -182,4 +182,4 @@ class TripleSplitForward(BrinkmanLattice):
     def hydraulic_power(self):
         """Q_in * delta_p with p = rho/3. Comparable across alpha, unlike
         J = sum(alpha |u|^2), which grows with alpha regardless of design."""
-        return self.q_in * (self.inlet_density() - self.rho_south) / 3.0
+        return self.flux_in * (self.inlet_density() - self.rho_south) / 3.0

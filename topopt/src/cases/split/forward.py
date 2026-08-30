@@ -155,7 +155,7 @@ class SplitForward(BrinkmanLattice):
         formulation still admits.
         """
         flux_east, flux_south = self.outlet_fluxes()
-        return (self.q_in - flux_east - flux_south) / self.q_in
+        return (self.flux_in - flux_east - flux_south) / self.flux_in
 
     def hydraulic_power(self):
         """Pumping power the design demands: Q_in * delta_p, with p = rho/3.
@@ -165,7 +165,7 @@ class SplitForward(BrinkmanLattice):
         improves.
         """
         delta_p = (self.inlet_density() - self.rho_east) / 3.0
-        return self.q_in * delta_p
+        return self.flux_in * delta_p
     
     def outlet_fluxes(self):
         """Measured flux through each outlet, signed positive outward.
