@@ -10,7 +10,7 @@ class BaseContinuation:
     grey solution, which tightening then walks toward a binary one.
     """
 
-    def __init__(self, alpha_start=5.0, alpha_end=100.0,
+    def __init__(self, alpha_start=5.0, alpha_end=10.0,
                  beta_start=1.0, beta_end=2.0, beta_delay=20):
         self.alpha_start = alpha_start
         self.alpha_end = alpha_end
@@ -49,11 +49,12 @@ class GeometricContinuation(BaseContinuation):
     block length to justify.
     """
 
-    def __init__(self, complete_by=120, **kw):
+    def __init__(self, complete_alpha_by, complete_beta_by, **kw):
         super().__init__(**kw)
-        self.complete_by = complete_by
-        self.alpha_growth = (self.alpha_end / self.alpha_start) ** (1.0 / complete_by)
-        beta_span = max(complete_by - self.beta_delay, 1)
+        self.complete_alpha_by = complete_alpha_by
+        self.complete_beta_by = complete_beta_by
+        self.alpha_growth = (self.alpha_end / self.alpha_start) ** (1.0 / complete_alpha_by)
+        beta_span = max(complete_beta_by - self.beta_delay, 1)
         self.beta_growth = (self.beta_end / self.beta_start) ** (1.0 / beta_span)
 
     def alpha_max(self, iteration):
@@ -68,11 +69,11 @@ class GeometricContinuation(BaseContinuation):
 
     @property
     def final_iteration(self):
-        return self.complete_by
+        return max(self.complete_alpha_by, self.complete_beta_by)
 
     def describe(self):
         return (super().describe() +
-                f", geometric, complete by it {self.complete_by} "
+                f", geometric, complete by it {self.final_iteration} "
                 f"(rates {self.alpha_growth:.4f}/{self.beta_growth:.4f})")
 
 
