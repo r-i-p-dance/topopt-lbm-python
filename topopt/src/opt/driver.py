@@ -39,13 +39,15 @@ class TopOptDriver:
 
         optimizer.volume_fraction = case.volume_fraction
         optimizer.contract_from = getattr(continuation, "final_iteration", None)
+        self.convergence_window = getattr(optimizer, "convergence_window")
 
         if recorder is not None:
-            recorder.setup(case.nx, case.ny, self.paths.animation)
+            recorder.setup(case.nx, case.ny, self.paths.animation,
+                           volume_fraction=case.volume_fraction)
         if field_dump is not None:
             field_dump.setup(self.paths.fields)
 
-    def run(self, max_iter=200, tol_J=5e-3, window=10,
+    def run(self, max_iter=200, tol_J=5e-3, tol_grey=2e-2,
             solver_tol=1e-8, ewa_beta=0.85):
         """
         tol_change : threshold on MEAN |delta rho|. The mean, not the max:
@@ -56,7 +58,6 @@ class TopOptDriver:
         tol_J      : threshold on the relative spread of J over `window`
                      iterations. Catches limit cycles, where the design
                      change is constant but J alternates between states.
-        window     : length of the stability window.
         ewa_beta   : smoothing for the exponentially weighted average iteration
                      time. The first iterations are slower (cold start, Numba compilation),
                      so a plain mean would overestimate the remaining time.
@@ -65,6 +66,13 @@ class TopOptDriver:
                      carry the same run number.
         """
         case = self.case
+
+        fwd, adj = case.build_solvers(self.continuation.alpha_max(0), self.continuation.beta(0))
+
+        # The recorder is built in __init__, before the solvers exist, so
+        # the wall geometry can only be handed over here.
+        if self.recorder is not None:
+            self.recorder.set_obstacle(fwd.obstacle)
 
         # name the log after the GIF so artifacts stay matched
         log = _Tee(self.paths.log)
@@ -76,6 +84,26 @@ class TopOptDriver:
         log(f"case             : {type(case).__name__}")
         log(f"grid             : nx={case.nx}, ny={case.ny}")
         log(f"volume_fraction  : {case.volume_fraction}")
+
+        if hasattr(fwd, "xi"):
+            log(f"outlet asymmetry : xi={fwd.xi:.3f}  "
+                f"outlet_asymmetry={fwd.outlet_asymmetry:.3e}  "
+                f"(natural scale {fwd.natural_pressure_scale():.3e})")
+            log(f"outlet densities : east={fwd.rho_east:.6f}  "
+                f"south={fwd.rho_south:.6f}  less_pressure={fwd.less_pressure}")
+            
+        if hasattr(fwd, "split"):
+            log(f"prescribed split : {fwd.split:.3f} south / "
+                f"{1 - fwd.split:.3f} east")
+            log(f"inlet flux Q_in  : {fwd.flux_in:.6e}")
+            log(f"target flux Q_south   : {fwd.flux_south_target:.6e}")
+
+        if hasattr(fwd, "split_3"):
+            log(f"prescribed splits: {fwd.split_1:.3f} / "
+                f"{fwd.split_2:.3f} / {fwd.split_3:.3f} "
+                f"(outlet 3 = anchor, takes the remainder)")
+            log(f"inlet flux Q_in  : {fwd.q_in:.6e}")
+
         log(f"Re               : {case.Re}")
         log(f"tau_lbm          : {case.tau_lbm}    nu={case.nu:.6f}")
         log(f"q                : {case.q}")
@@ -90,14 +118,13 @@ class TopOptDriver:
         log("")
 
         rho_e = case.rho_e.copy()
-        fwd, adj = case.build_solvers(self.continuation.alpha_max(0), self.continuation.beta(0))
-
+        
         t_start = timer()
         ewa = None
         it = 0
         converged = False
-        J_window = deque(maxlen=window)
-        best = {"J": np.inf, "it": -1, "rho_e": None, "rho_bar": None}
+        J_window = deque(maxlen=self.convergence_window)
+        greyness_window = deque(maxlen=self.convergence_window)
 
         for it in range(max_iter):
             t_iter = timer()
@@ -109,11 +136,12 @@ class TopOptDriver:
             fwd.converge(tol=solver_tol)
 
             if hasattr(fwd, "outlet_fluxes"):
-                flux_east, flux_south = fwd.outlet_fluxes()
-                total_flux = abs(flux_east) + abs(flux_south) + 1e-30
-                split = abs(flux_east) / total_flux
-                flux_text = (f"qE={flux_east:+.3e} qS={flux_south:+.3e} "
-                             f"split={split:.3f}  dP_in={fwd.inlet_pressure_drop():+.2e}  ")
+                fluxes = fwd.outlet_fluxes()
+                total = sum(fluxes) + 1e-30
+                shares = " ".join(f"{q/total:.3f}" for q in fluxes)
+                flux_text = (f"split=[{shares}] "
+                             f"mass balance={fwd.mass_balance():+.1e} "
+                             f"hydraulic power={fwd.hydraulic_power():.3e}  ")
             else:
                 flux_text = ""
 
@@ -122,21 +150,12 @@ class TopOptDriver:
 
             G_raw = assemble_sensitivity(fwd, adj, alpha_max, beta, case.q,)
             G = self.filter.apply(G_raw)
+            G_max = float(np.max(np.abs(G)))
 
             rho_bar = fwd.rho_bar
             J = dissipation_objective(rho_bar, fwd.ux, fwd.uy, alpha_max, case.q)
 
             adj.macro()
-
-            if self.recorder is not None:
-
-                self.recorder.capture(
-                    loop=it,
-                    fwd_vel=np.sqrt(fwd.ux**2 + fwd.uy**2),
-                    adj_vel=np.sqrt(adj.ux**2 + adj.uy**2),
-                    G=G, rho_bar=rho_bar, J=J,
-                    lam=self.optimizer.lam, alpha=alpha_max, beta=beta,
-                    fwd_iters=fwd.it, adj_iters=adj.it)
                 
             if self.field_dump is not None:
                 self.field_dump.maybe_capture(it, fwd, adj, G, rho_bar, alpha_max, beta)
@@ -157,15 +176,23 @@ class TopOptDriver:
             change_mean = float(change.mean())
             rho_e = rho_new
 
+            if self.recorder is not None:
+                self.recorder.capture(
+                    loop=it,
+                    fwd_vel=np.sqrt(fwd.ux**2 + fwd.uy**2),
+                    adj_vel=np.sqrt(adj.ux**2 + adj.uy**2),
+                    G=G, rho_bar=rho_bar, J=J,
+                    lam=self.optimizer.lam, alpha=alpha_max, beta=beta,
+                    fwd_iters=fwd.it, adj_iters=adj.it,
+                    greyness=grey, change_max=change_max,
+                    change_mean=change_mean,
+                    move_limit=self.optimizer.current_move(it),
+                    G_max=G_max, volume=volume)
+            
+
             self.continuation.notify(it, change_mean)
             J_window.append(J)
-
-            # Best-design tracking: gradient-based TO can degrade late, so
-            # return the best feasible design rather than the last one.
-            if (J < best["J"]
-                    and abs(volume - case.volume_fraction) < 1e-3):
-                best.update(J=J, iteration=it,
-                            rho_e=rho_e.copy(), rho_bar=rho_bar_new.copy())
+            greyness_window.append(grey)
 
             dt = timer() - t_iter
             ewa = dt if ewa is None else ewa_beta * ewa + (1.0 - ewa_beta) * dt
@@ -188,14 +215,16 @@ class TopOptDriver:
             # Converged when the design has settled (mean change), the
             # objective has stopped varying over a window, and continuation
             # has finished so the problem itself is no longer changing.
-            if len(J_window) == window and self.continuation.is_complete(it):
-                spread = ((max(J_window) - min(J_window))
-                          / max(abs(np.mean(J_window)), 1e-30))
-                if spread < tol_J:
+            if len(J_window) == self.convergence_window and self.continuation.is_complete(it):
+                j_spread = ((max(J_window) - min(J_window))
+                            / max(abs(np.mean(J_window)), 1e-30))
+                grey_spread = ((max(greyness_window) - min(greyness_window))
+                               / max(np.mean(greyness_window), 1e-30))
+                if j_spread < tol_J and grey_spread < tol_grey:
                     converged = True
-                    log(f"\nConverged: J spread {spread:.2e} over last "
-                        f"{window} iterations (design-variable change is "
-                        f"expected to persist at the interface)")
+                    log(f"\nConverged: J spread {j_spread:.2e}, greyness "
+                        f"spread {grey_spread:.2e} over the last {self.convergence_window} "
+                        f"iterations")
                     break
 
         total = timer() - t_start
