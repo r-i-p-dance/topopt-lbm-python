@@ -170,13 +170,36 @@ class OptimizationRecorder:
         self.volume_error = []
 
     # ------------------------------------------------------------------
-    def setup(self, nx, ny, path, volume_fraction=None):
-        """Build the figure once the grid size and output path are known."""
+    def setup(self, nx, ny, path, volume_fraction=None, fig_w=10.0):
+        """Build the figure and open the movie writer."""
         self.nx, self.ny = nx, ny
         self.path = path
         self.volume_fraction = volume_fraction
         print(f"Recording to: {self.path}")
+        self._build_figure(nx, ny, fig_w=fig_w)
+        # yuv420p for QuickTime/PowerPoint compatibility; the scale filter
+        # forces even pixel dimensions, which H.264 requires and which an
+        # odd figsize*dpi would otherwise violate.
+        self.writer = FFMpegWriter(
+            fps=self.fps, codec="libx264", bitrate=self.bitrate,
+            extra_args=["-pix_fmt", "yuv420p",
+                        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"])
+        self.writer.setup(self.fig, self.path, dpi=self.dpi)
 
+    def setup_static(self, nx, ny, volume_fraction=None, fig_w=10.0):
+        """The same figure with no movie behind it — needs no ffmpeg.
+
+        This is what lets a saved run be replotted: the replot draws through
+        exactly the same code as the movie did, so the two cannot drift.
+        """
+        self.nx, self.ny = nx, ny
+        self.path = None
+        self.volume_fraction = volume_fraction
+        self.writer = None
+        self._build_figure(nx, ny, fig_w=fig_w)
+
+    def _build_figure(self, nx, ny, fig_w=10.0):
+        """Everything except the writer: axes, artists, ticks, styling."""
         # Every panel is strictly square, so the whole layout follows from
         # one number: the width of a single grid column. A field panel spans
         # two columns PLUS the gutter between them, so its row has to be
@@ -189,7 +212,6 @@ class OptimizationRecorder:
         FIELD_SPAN = 2 + WSPACE                 # field panel width, in columns
         LEFT, RIGHT, TOP, BOTTOM = 0.07, 0.985, 0.975, 0.03
 
-        fig_w = 10.0
         column = (RIGHT - LEFT) * fig_w / (4 + 3 * WSPACE)
         row_heights = [FIELD_SPAN * column, FIELD_SPAN * column,
                        column, column]
@@ -385,15 +407,6 @@ class OptimizationRecorder:
                     lw=0.5, ls="-")
             ax.set_axisbelow(True)
 
-        # yuv420p for QuickTime/PowerPoint compatibility; the scale filter
-        # forces even pixel dimensions, which H.264 requires and which an
-        # odd figsize*dpi would otherwise violate.
-        self.writer = FFMpegWriter(
-            fps=self.fps, codec="libx264", bitrate=self.bitrate,
-            extra_args=["-pix_fmt", "yuv420p",
-                        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"])
-        self.writer.setup(self.fig, self.path, dpi=self.dpi)
-
     # ------------------------------------------------------------------
     def set_obstacle(self, obstacle):
         """Walls, painted style.SOLID on the three physics panels.
@@ -412,16 +425,8 @@ class OptimizationRecorder:
         return np.where(self._solid, np.nan, field)
 
     # ------------------------------------------------------------------
-    def capture(self, loop, fwd_vel, adj_vel, G, rho_bar,
-                J, lam, alpha, beta, fwd_iters, adj_iters,
-                greyness=None, change_max=None, change_mean=None,
-                move_limit=None, G_max=None, volume=None):
-        """Record one optimization iteration as a frame.
-
-        The second metric row is optional: pass the extra keywords and it
-        is populated, omit them and those panels stay empty. This keeps the
-        recorder usable from any driver.
-        """
+    def draw_fields(self, fwd_vel, adj_vel, G, rho_bar):
+        """Repaint the four field panels. Also the replot's entry point."""
         # forward: fix the scale from the first frame so it doesn't flicker
         if self.vmax_fwd is None:
             self.vmax_fwd = max(float(np.percentile(fwd_vel, 99.5)), 1e-10)
@@ -459,42 +464,27 @@ class OptimizationRecorder:
         self.img4.set_data(self._mask(rho_bar).T)
         self.title4.set_text(f"Pipe design | vol={np.mean(rho_bar):.3f}")
 
-        self.loss.append(J)
-        self.lam.append(lam)
-        self.alpha.append(alpha)
-        self.beta.append(beta)
-        self.fwd_iters.append(fwd_iters)
-        self.adj_iters.append(adj_iters)
+    def draw_series(self):
+        """Redraw the eight metric panels from the series lists as they are.
 
-        steps = range(len(self.loss))
-        self.line_loss.set_data(steps, self.loss)
-        self.line_lam.set_data(steps, self.lam)
-        self.line_alpha.set_data(steps, self.alpha)
-        self.line_beta.set_data(steps, self.beta)
-        self.line_fwd.set_data(steps, self.fwd_iters)
-        self.line_adj.set_data(steps, self.adj_iters)
-
-        if greyness is not None:
-            self.greyness.append(max(greyness, 1e-12))
-            self.line_grey.set_data(range(len(self.greyness)), self.greyness)
-
-        if change_max is not None:
-            self.change_max.append(max(change_max, 1e-12))
-            self.change_mean.append(max(change_mean or 1e-12, 1e-12))
-            self.move_limit.append(max(move_limit or 1e-12, 1e-12))
-            span = range(len(self.change_max))
-            self.line_dmax.set_data(span, self.change_max)
-            self.line_dmean.set_data(span, self.change_mean)
-            self.line_move.set_data(span, self.move_limit)
-
-        if G_max is not None and lam:
-            self.b_over_lam.append(G_max / max(abs(lam), 1e-300))
-            self.line_ratio.set_data(range(len(self.b_over_lam)), self.b_over_lam)
-
-        if volume is not None and self.volume_fraction is not None:
-            self.volume_error.append(volume - self.volume_fraction)
-            self.line_vol.set_data(range(len(self.volume_error)),
-                                   self.volume_error)
+        Each line takes its own range(len(...)) rather than a shared one:
+        b_over_lam is appended only on iterations where lam is non-zero, so
+        the lists are genuinely different lengths and a shared x-axis would
+        silently shift that curve.
+        """
+        self.line_loss.set_data(range(len(self.loss)), self.loss)
+        self.line_lam.set_data(range(len(self.lam)), self.lam)
+        self.line_alpha.set_data(range(len(self.alpha)), self.alpha)
+        self.line_beta.set_data(range(len(self.beta)), self.beta)
+        self.line_fwd.set_data(range(len(self.fwd_iters)), self.fwd_iters)
+        self.line_adj.set_data(range(len(self.adj_iters)), self.adj_iters)
+        self.line_grey.set_data(range(len(self.greyness)), self.greyness)
+        self.line_dmax.set_data(range(len(self.change_max)), self.change_max)
+        self.line_dmean.set_data(range(len(self.change_mean)), self.change_mean)
+        self.line_move.set_data(range(len(self.move_limit)), self.move_limit)
+        self.line_ratio.set_data(range(len(self.b_over_lam)), self.b_over_lam)
+        self.line_vol.set_data(range(len(self.volume_error)),
+                               self.volume_error)
 
         for ax in self.metric_axes:
             ax.relim()
@@ -507,7 +497,44 @@ class OptimizationRecorder:
         for ax in self.log_axes:
             _retick_log(ax)
 
-        self.writer.grab_frame()
+    # ------------------------------------------------------------------
+    def capture(self, loop, fwd_vel, adj_vel, G, rho_bar,
+                J, lam, alpha, beta, fwd_iters, adj_iters,
+                greyness=None, change_max=None, change_mean=None,
+                move_limit=None, G_max=None, volume=None):
+        """Record one optimization iteration as a frame.
+
+        The second metric row is optional: pass the extra keywords and it
+        is populated, omit them and those panels stay empty. This keeps the
+        recorder usable from any driver.
+        """
+        self.draw_fields(fwd_vel, adj_vel, G, rho_bar)
+
+        self.loss.append(J)
+        self.lam.append(lam)
+        self.alpha.append(alpha)
+        self.beta.append(beta)
+        self.fwd_iters.append(fwd_iters)
+        self.adj_iters.append(adj_iters)
+
+        if greyness is not None:
+            self.greyness.append(max(greyness, 1e-12))
+
+        if change_max is not None:
+            self.change_max.append(max(change_max, 1e-12))
+            self.change_mean.append(max(change_mean or 1e-12, 1e-12))
+            self.move_limit.append(max(move_limit or 1e-12, 1e-12))
+
+        if G_max is not None and lam:
+            self.b_over_lam.append(G_max / max(abs(lam), 1e-300))
+
+        if volume is not None and self.volume_fraction is not None:
+            self.volume_error.append(volume - self.volume_fraction)
+
+        self.draw_series()
+
+        if self.writer is not None:
+            self.writer.grab_frame()
 
     # ------------------------------------------------------------------
     def save_last_frame(self, path):
@@ -523,11 +550,8 @@ class OptimizationRecorder:
         style.save(self.fig, path, dpi=self.still_dpi)
         print(f"Final frame saved to: {path}")
 
-    def save_arrays(self, path, **arrays):
-        np.savez_compressed(path, **arrays)
-        print(f"Arrays saved to: {path}")
-
     def close(self, plot_path):
         self.save_last_frame(plot_path)
-        self.writer.finish()
+        if self.writer is not None:
+            self.writer.finish()
         plt.close(self.fig)
