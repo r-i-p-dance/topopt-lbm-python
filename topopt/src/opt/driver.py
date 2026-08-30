@@ -7,6 +7,7 @@ from timeit import default_timer as timer
 from topopt.src.core.projection import heaviside_projection
 from pathlib import Path
 from lbm.src.utils.paths import RunPaths
+from topopt.src.utils.archive import save_run_archive
 from collections import deque
 
 
@@ -85,13 +86,6 @@ class TopOptDriver:
         log(f"grid             : nx={case.nx}, ny={case.ny}")
         log(f"volume_fraction  : {case.volume_fraction}")
 
-        if hasattr(fwd, "xi"):
-            log(f"outlet asymmetry : xi={fwd.xi:.3f}  "
-                f"outlet_asymmetry={fwd.outlet_asymmetry:.3e}  "
-                f"(natural scale {fwd.natural_pressure_scale():.3e})")
-            log(f"outlet densities : east={fwd.rho_east:.6f}  "
-                f"south={fwd.rho_south:.6f}  less_pressure={fwd.less_pressure}")
-            
         if hasattr(fwd, "split"):
             log(f"prescribed split : {fwd.split:.3f} south / "
                 f"{1 - fwd.split:.3f} east")
@@ -102,7 +96,7 @@ class TopOptDriver:
             log(f"prescribed splits: {fwd.split_1:.3f} / "
                 f"{fwd.split_2:.3f} / {fwd.split_3:.3f} "
                 f"(outlet 3 = anchor, takes the remainder)")
-            log(f"inlet flux Q_in  : {fwd.q_in:.6e}")
+            log(f"inlet flux Q_in  : {fwd.flux_in:.6e}")
 
         log(f"Re               : {case.Re}")
         log(f"tau_lbm          : {case.tau_lbm}    nu={case.nu:.6f}")
@@ -125,6 +119,8 @@ class TopOptDriver:
         converged = False
         J_window = deque(maxlen=self.convergence_window)
         greyness_window = deque(maxlen=self.convergence_window)
+        rho_e_solved = rho_e
+        rho_bar_new = None
 
         for it in range(max_iter):
             t_iter = timer()
@@ -174,6 +170,13 @@ class TopOptDriver:
             change = np.abs(rho_new - rho_e)
             change_max = float(change.max())
             change_mean = float(change.mean())
+
+            # Keep a handle on the design the flow above actually belongs to.
+            # rho_e is about to be rebound to the post-update design, and the
+            # archive has to be able to tell the two apart: fwd.rho_bar, ux,
+            # uy, G and J all describe rho_e_solved, NOT rho_new. The optimizer
+            # returns a fresh array, so this is a free alias, not a copy.
+            rho_e_solved = rho_e
             rho_e = rho_new
 
             if self.recorder is not None:
@@ -238,14 +241,22 @@ class TopOptDriver:
         log(f"final greyness   : {grey:.3f}  (0 = binary)")
         log(f"final alpha/beta : {alpha_max:.1f} / {beta:.1f}")
         log("=" * 100)
+
+        # Outside the recorder guard: a run without a movie still deserves
+        # its data. Before log.close(), so a failure here lands in the log
+        # rather than only on stdout.
+        save_run_archive(
+            self.paths.arrays, case, fwd, adj, self, self.recorder,
+            rho_e=rho_e_solved, rho_e_final=rho_e, rho_bar_final=rho_bar_new,
+            G=G, G_raw=G_raw, alpha_max=alpha_max, beta=beta,
+            design_state=dict(J=float(J), volume=volume, greyness=grey,
+                              G_max=G_max, lam=self.optimizer.lam),
+            run_state=dict(stem=self.paths.stem, iterations=it + 1,
+                           converged=converged, seconds=total))
+        log(f"archive          : {self.paths.arrays}")
         log.close()
 
         if self.recorder is not None:
-            self.recorder.save_arrays(
-                self.paths.arrays,
-                rho_e=rho_e, rho_bar=fwd.rho_bar, obstacle=fwd.obstacle,
-                ux=fwd.ux, uy=fwd.uy, G=G,
-                objective=np.array(self.recorder.loss))
             self.recorder.close(self.paths.plot)
         if self.field_dump is not None:
             self.field_dump.close()
