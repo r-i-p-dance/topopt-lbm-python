@@ -39,7 +39,7 @@ class BaseOptimizer:
     """
 
     def __init__(self, move=0.2, projection_fn=heaviside_projection,
-                 move_decay=0.95, move_floor=0.02):
+                 move_decay=0.95, move_floor=0.0):
         self.volume_fraction = None     # set by the driver from the case
         self.contract_from = None       # set by the driver from continuation
         self.move = move
@@ -108,13 +108,14 @@ class MultiplicativeOC(BaseOptimizer):
     bisection over such a bracket wastes most of its iterations.
     """
 
-    def __init__(self, move=0.2, eta=0.5, rho_min=1e-3,
+    def __init__(self, move=0.2, eta=0.5, rho_min=1e-3, convergence_window=10,
                  projection_fn=heaviside_projection, n_bisect=60,
-                 move_decay=0.95, move_floor=0.02):
+                 move_decay=0.95, move_floor=0.0):
         super().__init__(move, projection_fn, move_decay, move_floor)
         self.eta = eta
         self.rho_min = rho_min
         self.n_bisect = n_bisect
+        self.convergence_window = convergence_window
 
     def update(self, rho_e, sensitivity, iteration, beta=None,
                fixed_mask=None, fixed_values=None):
@@ -173,13 +174,14 @@ class AdditiveOC(BaseOptimizer):
     is the normal case.
     """
 
-    def __init__(self, move=0.1, learning_rate=0.5, normaliser=None,
+    def __init__(self, move=0.1, learning_rate=0.5, convergence_window=10, normaliser=None,
                  projection_fn=heaviside_projection, n_bisect=200,
                  move_decay=0.95, move_floor=0.01):
         super().__init__(move, projection_fn, move_decay, move_floor)
         self.lr = learning_rate
         self.normaliser = normaliser or MonotoneNormalisation()
         self.n_bisect = n_bisect
+        self.convergence_window = convergence_window
 
     def current_move(self, iteration, beta=None):
         """Base contraction, then a further 1/sqrt(beta) factor.
