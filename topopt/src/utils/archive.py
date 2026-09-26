@@ -29,7 +29,7 @@ import numpy as np
 # The twelve series the recorder accumulates.
 RECORDER_SERIES = ("loss", "lam", "alpha", "beta", "fwd_iters", "adj_iters",
                    "greyness", "change_max", "change_mean", "move_limit",
-                   "b_over_lam", "volume_error")
+                   "b_over_lam", "change_ratio")
 
 # Big arrays and lattice constants, kept out of the JSON.
 _SKIP = {"f", "f_new", "f_eq", "g", "source", "rho", "ux", "uy", "obstacle",
@@ -54,15 +54,22 @@ def hydraulics(fwd):
     resolutions: raw power scales with the number of cells spanning the
     inlet, so it changes with ny even for the same physical design.
     """
-    rho_ref = next(getattr(fwd, name) for name in
-                   ("rho_south", "rho_east", "rho_out") if hasattr(fwd, name))
+    # The pressure anchor is whichever boundary is held at a fixed density,
+    # and each case names it after its own geometry: rho_out, rho_east,
+    # rho_south, rho_west. Take whichever float the forward defines rather
+    # than matching a list of names, so a new case needs no change here.
+    rho_ref = next(value for name, value in vars(fwd).items()
+                   if name.startswith("rho_") and isinstance(value, float))
     delta_p = (fwd.inlet_density() - rho_ref) / 3.0 if hasattr(
         fwd, "inlet_density") else (
         float(np.mean(fwd.rho[0, fwd.j_from:fwd.j_to])) - rho_ref) / 3.0
-    return {"power": fwd.flux_in * delta_p,
+    # From the profile, not fwd.flux_in: only the split cases store that
+    # attribute, and it is the sum of exactly this array.
+    flux_in = float(np.sum(fwd.u_profile))
+    return {"power": flux_in * delta_p,
             "delta_p": delta_p,
             "euler_number": delta_p / fwd.u_max ** 2,
-            "flux_in": fwd.flux_in}
+            "flux_in": flux_in}
 
 
 def save_run_archive(path, case, fwd, adj, driver, recorder,
@@ -85,9 +92,6 @@ def save_run_archive(path, case, fwd, adj, driver, recorder,
     if recorder is not None:
         for name in RECORDER_SERIES:
             arrays["series_" + name] = np.asarray(getattr(recorder, name))
-        # The recorder keeps the volume error only; restore the raw volume.
-        arrays["series_volume"] = (np.asarray(recorder.volume_error)
-                                   + case.volume_fraction)
 
     meta = {
         "case": {"class": type(case).__name__, **_scalars(case)},
