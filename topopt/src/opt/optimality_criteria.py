@@ -108,13 +108,17 @@ class MultiplicativeOC(BaseOptimizer):
     bisection over such a bracket wastes most of its iterations.
     """
 
-    def __init__(self, move=0.2, eta=0.5, rho_min=1e-3, convergence_window=10,
-                 projection_fn=heaviside_projection, n_bisect=60,
-                 move_decay=0.95, move_floor=0.0):
+    def __init__(self, move=0.2, eta=0.5, rho_min=0.05, convergence_window=10,
+                 projection_fn=heaviside_projection, n_bisect=40,
+                 move_decay=1.0, move_floor=0.0, bisect_tol=1e-10):
         super().__init__(move, projection_fn, move_decay, move_floor)
         self.eta = eta
         self.rho_min = rho_min
         self.n_bisect = n_bisect
+        self.bisect_tol = bisect_tol
+        self.diagnostics = {}
+
+        """ move this somewhere else. it doesn't seem like it belongs here """
         self.convergence_window = convergence_window
 
     def update(self, rho_e, sensitivity, iteration, beta=None,
@@ -149,6 +153,22 @@ class MultiplicativeOC(BaseOptimizer):
                 log_high = log_mid
 
         self.lam = 10.0 ** (0.5 * (log_low + log_high))
+
+        # Diagnostics: which mechanism is moving the design.
+        free = ~fixed_mask if fixed_mask is not None else np.ones_like(rho_e, bool)
+        delta = design_new - rho_e
+        self.diagnostics = {
+            # Cells with G > 0 get ratio = 0 exactly, so they drop by the full
+            # move limit INDEPENDENTLY of lambda. If this fraction is large
+            # and changes between iterations, a whole block of the design is
+            # slammed down one iteration and over-compensated the next.
+            "frac_positive_G": float(np.mean(benefit[free] <= 0.0)),
+            "frac_at_floor": float(np.mean(design_new[free] <= self.rho_min * 1.001)),
+            "frac_clip_down": float(np.mean(delta[free] <= -move * 0.999)),
+            "frac_clip_up": float(np.mean(delta[free] >= move * 0.999)),
+        }
+
+
         if abs(volume - self.volume_fraction) > 1e-3:
             print(f"  [OC] volume {volume:.4f} vs target "
                   f"{self.volume_fraction:.4f} — not reachable within the "
