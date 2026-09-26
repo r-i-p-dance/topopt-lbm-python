@@ -27,11 +27,13 @@ OUT_DIR = Path("results") / "plots" / "replots"
 
 
 def replot_archive(archive, save_path=None, dpi=300, formats=("pdf",),
-                   layout="full", modules=11, final_design=False):
+                   layout="full", modules=11, orientation="vertical",
+                   final_design=False):
     """Redraw the recorder figure from an archive and save it.
 
     layout: "full" (all 12 panels), "fields" (the 2x2 block) or "metrics".
-    modules is the field panel's side on the poster grid.
+    modules is the field panel's side on the poster grid, and orientation
+    is where the metric plots sit beside it.
     final_design draws the design after the last optimizer update rather
     than the one the flow was solved on.
     """
@@ -39,7 +41,7 @@ def replot_archive(archive, save_path=None, dpi=300, formats=("pdf",),
         # vmax_fwd is frozen on the movie's first frame and never revisited,
         # so restoring it keeps the forward panel on the same colour scale.
         vmax_fwd=archive.meta["recorder"].get("vmax_fwd"),
-        modules=modules)
+        modules=modules, orientation=orientation)
     recorder.setup_static(archive.nx, archive.ny)
     recorder.set_obstacle(archive.obstacle)
 
@@ -84,12 +86,15 @@ def main():
     parser.add_argument("--layout", default="full",
                         choices=("full", "fields", "metrics"))
     parser.add_argument("--modules", type=int, default=11)
+    parser.add_argument("--orientation", default="vertical",
+                        choices=("vertical", "horizontal"))
     parser.add_argument("--final-design", action="store_true")
     args = parser.parse_args()
 
     replot_archive(load_run(args.archive), args.out, dpi=args.dpi,
                    formats=args.format, layout=args.layout,
-                   modules=args.modules, final_design=args.final_design)
+                   modules=args.modules, orientation=args.orientation,
+                   final_design=args.final_design)
 
 
 if __name__ == "__main__":

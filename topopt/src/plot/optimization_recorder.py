@@ -1,8 +1,11 @@
+from pathlib import Path
+from sys import modules
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.gridspec import GridSpec
-from matplotlib.animation import FFMpegWriter
+from matplotlib.animation import FFMpegWriter, PillowWriter
 from matplotlib.ticker import (ScalarFormatter, MaxNLocator, AutoMinorLocator,
                                FixedLocator, FuncFormatter, LogLocator,
                                NullFormatter)
@@ -131,40 +134,48 @@ def _retick_log(ax):
 
 
 class OptimizationRecorder:
-    """Records the optimization loop as an MP4.
+    """Records the optimization loop as a movie.
 
-    Layout:
-      Rows 0-1: four field panels as a 2x2 block
-        Forward velocity     Adjoint momentum
-        Sensitivity          Pipe design
-      Rows 2-3: eight metric plots, four per row
-        dissipation | design change | change mean/max | alpha & beta
-        greyness    | OC multiplier | B / lambda      | solver iterations
+    Four field panels as a 2x2 block, and eight metric plots. `orientation`
+    decides where the metrics go — see _layout:
 
-      Column 0 is the pair being minimised, both amber because both are
-      physical measures. The OC multiplier sits beside B / lambda, which is
-      derived from it, which also collects the magenta panels into one run
-      along the bottom row instead of scattering them across the grid.
+      vertical    two rows of four, underneath the fields. Tall.
+      horizontal  four rows of two, to the right. Wide, and the two blocks
+                  come out exactly the same height.
+
+    Either way the metrics keep their pairing: dissipation with greyness (the
+    two physical measures), design change with its mean/max ratio, and the OC
+    multiplier beside B / lambda, which is derived from it.
 
     One optimization iteration = one frame. Grid size and output path are
     supplied by the driver via setup(), so the caller repeats neither.
 
-    MP4 rather than GIF: a GIF holds 256 colours per frame, and with three
-    colormaps in one figure the adaptive palette leaves too few true levels,
-    so intermediate values get dithered into coloured speckle. H.264 is full
-    24-bit colour, produces much smaller files, and embeds in slides.
-
-    Requires ffmpeg on PATH.
+    `fmt` picks the container. MP4 is the better picture: a GIF holds 256
+    colours per frame, and with three colormaps in one figure the adaptive
+    palette leaves too few true levels, so intermediate values dither into
+    coloured speckle. H.264 is full 24-bit colour and needs ffmpeg on PATH.
+    GIF needs nothing and embeds in a README, which is what it is for; `every`
+    is there to keep its weight down.
     """
 
     def __init__(self, fps=15, dpi=150, gamma=0.6, vmax_fwd=None,
                  bitrate=4000, g_linthresh_pct=50, still_dpi=300,
-                 modules=11):
+                 modules=None, orientation="vertical", fmt="mp4", every=1):
         self.fps = fps
         self.dpi = dpi
-        # Field panel side, in poster modules. The whole layout follows from
-        # it — see _build_figure. Odd, and at least 11.
-        self.modules = modules
+        # Field panel side, in poster modules, and where the metrics sit
+        # beside it. The whole layout follows from the pair — see _layout.
+        self.modules = modules 
+        if modules is not None:
+            self.modules = modules
+        else:
+            self.modules = 11 if orientation == "vertical" else 12
+        self.orientation = orientation
+        # "mp4" or "gif". `every` records one frame in N, which is how a GIF
+        # of a 200-iteration run stays small enough for a README.
+        self.fmt = fmt
+        self.every = every
+        self._frames = 0
         # The still is a poster asset and is not paying the movie's per-frame
         # encode cost, so it has no reason to inherit the movie's resolution.
         self.still_dpi = still_dpi
@@ -190,16 +201,20 @@ class OptimizationRecorder:
     def setup(self, nx, ny, path):
         """Build the figure and open the movie writer."""
         self.nx, self.ny = nx, ny
-        self.path = path
+        # The driver names the file; the format decides its extension.
+        self.path = str(Path(path).with_suffix("." + self.fmt))
         print(f"Recording to: {self.path}")
         self._build_figure(nx, ny)
-        # yuv420p for QuickTime/PowerPoint compatibility; the scale filter
-        # forces even pixel dimensions, which H.264 requires and which an
-        # odd figsize*dpi would otherwise violate.
-        self.writer = FFMpegWriter(
-            fps=self.fps, codec="libx264", bitrate=self.bitrate,
-            extra_args=["-pix_fmt", "yuv420p",
-                        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"])
+        if self.fmt == "gif":
+            self.writer = PillowWriter(fps=self.fps)
+        else:
+            # yuv420p for QuickTime/PowerPoint compatibility; the scale filter
+            # forces even pixel dimensions, which H.264 requires and which an
+            # odd figsize*dpi would otherwise violate.
+            self.writer = FFMpegWriter(
+                fps=self.fps, codec="libx264", bitrate=self.bitrate,
+                extra_args=["-pix_fmt", "yuv420p",
+                            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"])
         self.writer.setup(self.fig, self.path, dpi=self.dpi)
 
     def setup_static(self, nx, ny):
@@ -213,31 +228,62 @@ class OptimizationRecorder:
         self.writer = None
         self._build_figure(nx, ny)
 
-    def _build_figure(self, nx, ny):
-        """Everything except the writer: axes, artists, ticks, styling.
+    def _layout(self):
+        """Column and row sizes in modules, and the cell each panel occupies.
 
-        The whole layout follows from one number: F, the field panel's side in
-        poster modules. Both panels are square, and a metric panel is sized so
-        that two of them plus the gap between span one field exactly:
+        Both orientations are a 7x7 grid of panels separated by spacer rows
+        and columns, so only this table changes between them. Spacers rather
+        than hspace/wspace because the gaps are not all the same and those two
+        parameters are single figure-wide fractions; with them at zero every
+        panel edge lands on a whole module.
 
-            m = (F - 1) / 2       so    m + 1 + m = F
+        F is the field panel's side. In both, two metric panels plus the gap
+        between them span one field exactly, which is what lines the metric
+        block up with the fields.
 
-        Gaps are one module, except below the field block and between the two
-        metric rows, where they are three: that gap carries the upper row's x
-        tick labels AND the lower row's title, which at 13 pt is 31.6 pt of
-        content and does not fit in one module's 26.4 pt.
+        vertical    metrics in 2 rows of 4, below the fields. m = (F - 1) / 2,
+                    so F must be ODD. Gaps are one module except between the
+                    metric rows and below the field block, where three are
+                    needed to clear a row's x tick labels AND the next row's
+                    title (31.6 pt of content against a module's 26.4 pt).
 
-        Spacer rows and columns rather than hspace/wspace, because the gaps
-        are not uniform and those two parameters are single figure-wide
-        fractions. With them at zero every panel edge lands on a whole module.
+        horizontal  metrics in 4 rows of 2, to the right. Every gap is two
+                    modules and m = (F - 2) / 2, so F must be EVEN. Those two
+                    choices make the blocks exactly the same height: the
+                    fields are 2F + 2 = 4m + 6, and so are the four metric
+                    rows.
 
-        F must be ODD, or m falls on a half module, and at least 11: the
-        longest title is 4.53 modules wide, so a shorter panel clips it.
+        Either way F must leave a metric panel at least 4.53 modules wide, the
+        longest title — so F >= 11 vertical, F >= 12 horizontal.
         """
         F = self.modules
-        m = (F - 1) / 2
-        cols = [m, 1, m, 1, m, 1, m]            # sums to 2F + 1
-        rows = [F, 1, F, 3, m, 3, m]            # sums to 3F + 6
+        if self.orientation == "vertical":
+            m = (F - 1) // 2
+            cols = [m, 1, m, 1, m, 1, m]
+            rows = [F, 1, F, 3, m, 3, m]
+            fields = [(0, slice(0, 3)), (0, slice(4, 7)),
+                      (2, slice(0, 3)), (2, slice(4, 7))]
+            metrics = [(4, 0), (4, 2), (4, 4), (4, 6),
+                       (6, 0), (6, 2), (6, 4), (6, 6)]
+        else:
+            m = (F - 2) // 2
+            cols = [F, 2, F, 2, m, 2, m]
+            rows = [m, 2, m, 2, m, 2, m]
+            fields = [(slice(0, 3), 0), (slice(0, 3), 2),
+                      (slice(4, 7), 0), (slice(4, 7), 2)]
+            # In the order the metric axes are created below, which is the
+            # order they are wired to their series — not reading order.
+            #   dissipation  greyness
+            #   design chg   chg mean/max
+            #   OC mult      B / lambda
+            #   alpha&beta   solver iters
+            metrics = [(0, 4), (2, 4), (2, 6), (6, 4),
+                       (0, 6), (4, 4), (4, 6), (6, 6)]
+        return cols, rows, fields, metrics
+
+    def _build_figure(self, nx, ny):
+        """Everything except the writer: axes, artists, ticks, styling."""
+        cols, rows, fields, metrics = self._layout()
         total_w = sum(cols) + 2                 # + one module of margin a side
         total_h = sum(rows) + 2
 
@@ -249,19 +295,11 @@ class OptimizationRecorder:
                       left=1 / total_w, right=1 - 1 / total_w,
                       top=1 - 1 / total_h, bottom=1 / total_h)
 
-        self.ax1 = self.fig.add_subplot(gs[0, 0:3])
-        self.ax2 = self.fig.add_subplot(gs[0, 4:7])
-        self.ax3 = self.fig.add_subplot(gs[2, 0:3])
-        self.ax4 = self.fig.add_subplot(gs[2, 4:7])
-
-        self.ax5 = self.fig.add_subplot(gs[4, 0])
-        self.ax6 = self.fig.add_subplot(gs[4, 2])
-        self.ax7 = self.fig.add_subplot(gs[4, 4])
-        self.ax8 = self.fig.add_subplot(gs[4, 6])
-        self.ax9 = self.fig.add_subplot(gs[6, 0])
-        self.ax10 = self.fig.add_subplot(gs[6, 2])
-        self.ax11 = self.fig.add_subplot(gs[6, 4])
-        self.ax12 = self.fig.add_subplot(gs[6, 6])
+        (self.ax1, self.ax2,
+         self.ax3, self.ax4) = [self.fig.add_subplot(gs[c]) for c in fields]
+        (self.ax5, self.ax6, self.ax7, self.ax8,
+         self.ax9, self.ax10, self.ax11,
+         self.ax12) = [self.fig.add_subplot(gs[c]) for c in metrics]
 
         self.field_axes = (self.ax1, self.ax2, self.ax3, self.ax4)
         self.metric_axes = (self.ax5, self.ax6, self.ax7, self.ax8,
@@ -580,8 +618,12 @@ class OptimizationRecorder:
 
         self.draw_series()
 
-        if self.writer is not None:
-            self.writer.grab_frame()
+        # Every frame is drawn, so the still saved at the end is always the
+        # last iteration; only the recording skips. facecolor here and not in
+        # setup() because PillowWriter.setup takes no savefig kwargs.
+        if self.writer is not None and self._frames % self.every == 0:
+            self.writer.grab_frame(facecolor=style.GROUND, edgecolor="none")
+        self._frames += 1
 
     # ------------------------------------------------------------------
     def save_last_frame(self, path):

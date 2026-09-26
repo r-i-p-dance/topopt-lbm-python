@@ -105,7 +105,7 @@ class TopOptDriver:
         log(f"continuation     : {self.continuation.describe()}")
         log(f"driver           : max_iter={max_iter}, tol_J={tol_J}, "
             f"solver_tol={solver_tol}")
-        log(f"animation        : {self.paths.animation if self.recorder else '(none)'}")
+        log(f"animation        : {self.recorder.path if self.recorder else '(none)'}")
         log(f"field dump       : {self.paths.fields if self.field_dump else '(none)'}")
         log("=" * 100)
         log("")
