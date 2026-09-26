@@ -26,21 +26,21 @@ from topopt.src.utils.archive import RECORDER_SERIES, load_run
 OUT_DIR = Path("results") / "plots" / "replots"
 
 
-def replot_archive(archive, save_path=None, dpi=300, formats=("png",),
-                   layout="full", fig_w=10.0, final_design=False):
+def replot_archive(archive, save_path=None, dpi=300, formats=("pdf",),
+                   layout="full", modules=11, final_design=False):
     """Redraw the recorder figure from an archive and save it.
 
     layout: "full" (all 12 panels), "fields" (the 2x2 block) or "metrics".
+    modules is the field panel's side on the poster grid.
     final_design draws the design after the last optimizer update rather
     than the one the flow was solved on.
     """
     recorder = OptimizationRecorder(
         # vmax_fwd is frozen on the movie's first frame and never revisited,
         # so restoring it keeps the forward panel on the same colour scale.
-        vmax_fwd=archive.meta["recorder"].get("vmax_fwd"))
-    recorder.setup_static(archive.nx, archive.ny,
-                          volume_fraction=archive.meta["case"]["volume_fraction"],
-                          fig_w=fig_w)
+        vmax_fwd=archive.meta["recorder"].get("vmax_fwd"),
+        modules=modules)
+    recorder.setup_static(archive.nx, archive.ny)
     recorder.set_obstacle(archive.obstacle)
 
     for name in RECORDER_SERIES:
@@ -61,11 +61,16 @@ def replot_archive(archive, save_path=None, dpi=300, formats=("png",),
         for ax in drop:
             ax.remove()
 
+    # The full figure is a whole number of modules and must be saved at that
+    # size. The partial layouts exist precisely to crop away what is left,
+    # so they are off-grid by design and keep the tight save.
+    write = style.save_exact if layout == "full" else style.save
+
     save_path = Path(save_path) if save_path else OUT_DIR / archive.stem
     save_path.parent.mkdir(parents=True, exist_ok=True)
     for extension in formats:
         target = save_path.with_suffix(f".{extension}")
-        style.save(recorder.fig, target, dpi=dpi)
+        write(recorder.fig, target, dpi=dpi)
         print(f"Replotted {archive.stem} -> {target}")
     plt.close(recorder.fig)
 
@@ -74,17 +79,17 @@ def main():
     parser = argparse.ArgumentParser(prog="python -m topopt.src.plot.replot")
     parser.add_argument("archive")
     parser.add_argument("--out", default=None)
-    parser.add_argument("--format", nargs="+", default=["png"])
+    parser.add_argument("--format", nargs="+", default=["pdf"])
     parser.add_argument("--dpi", type=int, default=300)
     parser.add_argument("--layout", default="full",
                         choices=("full", "fields", "metrics"))
-    parser.add_argument("--fig-width", type=float, default=10.0)
+    parser.add_argument("--modules", type=int, default=11)
     parser.add_argument("--final-design", action="store_true")
     args = parser.parse_args()
 
     replot_archive(load_run(args.archive), args.out, dpi=args.dpi,
                    formats=args.format, layout=args.layout,
-                   fig_w=args.fig_width, final_design=args.final_design)
+                   modules=args.modules, final_design=args.final_design)
 
 
 if __name__ == "__main__":
