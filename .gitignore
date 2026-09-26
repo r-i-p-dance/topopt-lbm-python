@@ -25,5 +25,12 @@ venv/
 Thumbs.db
 .DS_Store
 
-results/
+results/plots/
+results/animations/
+results/logs
+results/arrays/
+results/tests/
+
+!results/plots/poster/URSS_poster_final.png
+!results/animations/triple_readme.gif
 
