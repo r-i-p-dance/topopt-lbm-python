@@ -43,8 +43,7 @@ class TopOptDriver:
         self.convergence_window = getattr(optimizer, "convergence_window")
 
         if recorder is not None:
-            recorder.setup(case.nx, case.ny, self.paths.animation,
-                           volume_fraction=case.volume_fraction)
+            recorder.setup(case.nx, case.ny, self.paths.animation)
         if field_dump is not None:
             field_dump.setup(self.paths.fields)
 
@@ -190,7 +189,7 @@ class TopOptDriver:
                     greyness=grey, change_max=change_max,
                     change_mean=change_mean,
                     move_limit=self.optimizer.current_move(it),
-                    G_max=G_max, volume=volume)
+                    G_max=G_max)
             
 
             self.continuation.notify(it, change_mean)
@@ -202,7 +201,13 @@ class TopOptDriver:
             elapsed = timer() - t_start
             remaining = (max_iter - it - 1) * ewa
 
-            
+            diag = getattr(self.optimizer, "diagnostics", {})
+            diag_text = ""
+            if diag:
+                diag_text = (f"G+={diag['frac_positive_G']:.3f} "
+                                f"floor={diag['frac_at_floor']:.3f} "
+                                f"clip-={diag['frac_clip_down']:.3f} "
+                                f"clip+={diag['frac_clip_up']:.3f}  ")
 
             log(f"it {it:4d}  J={J:.6e}  vol={volume:.4f}  "
                 f"{flux_text}"
@@ -210,10 +215,13 @@ class TopOptDriver:
                 f"dmean={change_mean:.3e}  |G|max={float(np.max(np.abs(G))):.2e}  "
                 f"lam={self.optimizer.lam:+.3e}  "
                 f"move={self.optimizer.current_move(it):.3f}  "
+                f"{diag_text}  "
                 f"alpha={alpha_max:6.1f} beta={beta:5.2f}  "
                 f"fwd={fwd.it:6d} adj={adj.it:6d}  "
                 f"| elapsed {_hms(elapsed)}  ewa {ewa:5.2f}s  "
-                f"left ~{_hms(remaining)}")
+                f"left ~{_hms(remaining)}"
+                )
+            
 
             # Converged when the design has settled (mean change), the
             # objective has stopped varying over a window, and continuation
@@ -242,6 +250,17 @@ class TopOptDriver:
         log(f"final alpha/beta : {alpha_max:.1f} / {beta:.1f}")
         log("=" * 100)
 
+        # Finalise the movie and the field dump FIRST. Both are complete by
+        # now and closing them is what makes the mp4 playable; leaving them
+        # until after the archive means one bad metadata value throws away
+        # the recording of a run that took minutes to produce. The recorder
+        # keeps its series and vmax_fwd after close(), so the archive below
+        # still gets everything it needs.
+        if self.recorder is not None:
+            self.recorder.close(self.paths.plot)
+        if self.field_dump is not None:
+            self.field_dump.close()
+
         # Outside the recorder guard: a run without a movie still deserves
         # its data. Before log.close(), so a failure here lands in the log
         # rather than only on stdout.
@@ -255,11 +274,6 @@ class TopOptDriver:
                            converged=converged, seconds=total))
         log(f"archive          : {self.paths.arrays}")
         log.close()
-
-        if self.recorder is not None:
-            self.recorder.close(self.paths.plot)
-        if self.field_dump is not None:
-            self.field_dump.close()
 
         return rho_e, fwd.rho_bar
 
