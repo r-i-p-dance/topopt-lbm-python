@@ -19,7 +19,7 @@ import numpy as np
 
 from lbm.src.plot import style
 from lbm.src.plot.convergence import plot_convergence
-from lbm.src.plot.difference import plot_field_comparison
+from lbm.src.plot.difference import plot_comparison_combined
 from lbm.src.study.grid_convergence import upsample
 
 OUT_DIR = "results/plots/mesh"
@@ -66,24 +66,26 @@ def plot_comparison(ref, coarse, result, out_dir=OUT_DIR):
     obstacle_up = upsample(coarse.obstacle, factor)
     stem = f"{coarse.ny}_vs_{ref.ny}"
 
-    plot_field_comparison(
+    plot_comparison_combined(
         ref.u_norm, upsample(coarse.u_norm, factor),
-        save_path=str(out / f"velocity_{stem}"),
+        ref.obstacle, obstacle_up,
+        path=str(out / f"velocity_{stem}.pdf"),
         title=f"|u|/u_max, Ny={ref.ny} vs {coarse.ny}   "
-              f"L2={result['L2_velocity']:.3e}",
-        obstacle_ref=ref.obstacle, obstacle_coarse=obstacle_up)
+              f"L2={result['L2_velocity']:.3e}")
 
-    plot_field_comparison(
-        ref.rho_bar, upsample(coarse.rho_bar, factor),
-        save_path=str(out / f"design_{stem}"),
-        title=f"Design, Ny={ref.ny} vs {coarse.ny}   "
+    ref_binary = (ref.rho_bar >= 0.5).astype(int)
+    coarse_binary = (coarse.rho_bar >= 0.5).astype(int)
+    plot_comparison_combined(
+        ref_binary, upsample(coarse_binary, factor),
+        ref.obstacle, obstacle_up,
+        path=str(out / f"design_{stem}.pdf"),
+        title=f"design, Ny={ref.ny} vs {coarse.ny}   "
               f"agreement={100 * result['agreement']:.1f}%",
-        # rho_bar already spans [0, 1], so no gamma compression.
-        cmap_field=style.DESIGN, cmap_diff=style.SEQUENTIAL_COOL, gamma=1.0,
-        obstacle_ref=ref.obstacle, obstacle_coarse=obstacle_up)
+        field=style.FIELD_DESIGN
+        )
 
 
-def mesh_independence_study(runs, out_dir=OUT_DIR, threshold=0.5):
+def mesh_independence_study(runs, modules, out_dir=OUT_DIR, threshold=0.5):
     """Compare every run against the finest. Returns the results."""
     runs = sorted(runs, key=lambda a: a.ny)
     ref, coarser = runs[-1], runs[:-1]
@@ -102,6 +104,7 @@ def mesh_independence_study(runs, out_dir=OUT_DIR, threshold=0.5):
     if len(results) >= 2:
         plot_convergence([r["ny_coarse"] for r in results],
                          [r["L2_velocity"] for r in results],
-                         save_path=str(Path(out_dir) / "L2_convergence.png"),
-                         title=f"Mesh convergence vs Ny={ref.ny}")
+                         save_path=str(Path(out_dir) / "L2_convergence.pdf"),
+                         title=f"$L_2$ error vs resolution, reference: $N_y$={ref.ny}",
+                         modules=modules)
     return results
