@@ -25,8 +25,17 @@ venv/
 Thumbs.db
 .DS_Store
 
-results/plots/
-results/animations/
+results/plots/*.png
+results/plots/*.jpg
+results/plots/*.pdf
+
+results/plots/**/*.png
+results/plots/**/*.jpg
+results/plots/**/*.pdf
+
+results/animations/*.gif
+results/animations/*.mp4
+
 results/logs
 results/arrays/
 results/tests/
