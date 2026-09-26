@@ -54,8 +54,9 @@ def test_metadata_and_series(archive):
     assert archive.meta["case"]["split_1"] == pytest.approx(1 / 3)
     assert archive.meta["filter"]["radius_over_ny"] == pytest.approx(1 / 16)
     assert len(archive.loss) == 4
-    # The recorder stores only the volume error; the raw volume is restored.
-    assert np.allclose(archive.volume - 0.6, archive.volume_error)
+    # mean/max is a fraction: 1 means the whole design is clipped at the
+    # move limit, small means only a few interface cells still move.
+    assert np.all((archive.change_ratio > 0) & (archive.change_ratio <= 1))
 
 
 def test_replot_needs_no_ffmpeg(archive, tmp_path, monkeypatch):
