@@ -58,7 +58,8 @@ def compare_runs(ref, coarse, threshold=0.5):
     }
 
 
-def plot_comparison(ref, coarse, result, out_dir=OUT_DIR):
+def plot_comparison(ref, coarse, result, field_modules, fmt, mode,
+                    out_dir=OUT_DIR):
     """Velocity and design difference panels for one resolution pair."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -69,24 +70,32 @@ def plot_comparison(ref, coarse, result, out_dir=OUT_DIR):
     plot_comparison_combined(
         ref.u_norm, upsample(coarse.u_norm, factor),
         ref.obstacle, obstacle_up,
-        path=str(out / f"velocity_{stem}.pdf"),
-        title=f"|u|/u_max, Ny={ref.ny} vs {coarse.ny}   "
-              f"L2={result['L2_velocity']:.3e}")
+        path=str(out / f"velocity_{stem}.{fmt}"),
+        modules=field_modules,
+        resolutions=(ref.ny, coarse.ny),
+        mode=mode)
 
     ref_binary = (ref.rho_bar >= 0.5).astype(int)
     coarse_binary = (coarse.rho_bar >= 0.5).astype(int)
     plot_comparison_combined(
         ref_binary, upsample(coarse_binary, factor),
         ref.obstacle, obstacle_up,
-        path=str(out / f"design_{stem}.pdf"),
-        title=f"design, Ny={ref.ny} vs {coarse.ny}   "
-              f"agreement={100 * result['agreement']:.1f}%",
-        field=style.FIELD_DESIGN
-        )
+        path=str(out / f"design_{stem}.{fmt}"),
+        modules=field_modules,
+        resolutions=(ref.ny, coarse.ny),
+        note=f"agreement {100 * result['agreement']:.1f}%",
+        field=style.FIELD_DESIGN, mode=mode)
 
 
-def mesh_independence_study(runs, modules, out_dir=OUT_DIR, threshold=0.5):
-    """Compare every run against the finest. Returns the results."""
+def mesh_independence_study(runs, modules, field_modules=(11, 11),
+                            fmt="pdf", mode="poster", out_dir=OUT_DIR,
+                            threshold=0.5):
+    """Compare every run against the finest. Returns the results.
+
+    fmt is the image format every figure is written in and mode how much
+    margin it carries — "pdf"/"poster" for the poster, "png"/"readme" for a
+    README.
+    """
     runs = sorted(runs, key=lambda a: a.ny)
     ref, coarser = runs[-1], runs[:-1]
     results = [compare_runs(ref, c, threshold) for c in coarser]
@@ -99,12 +108,13 @@ def mesh_independence_study(runs, modules, out_dir=OUT_DIR, threshold=0.5):
               f"Eu={result['euler_coarse']:.4g}")
 
     for archive, result in zip(coarser, results):
-        plot_comparison(ref, archive, result, out_dir)
+        plot_comparison(ref, archive, result, field_modules, fmt, mode,
+                        out_dir)
 
     if len(results) >= 2:
         plot_convergence([r["ny_coarse"] for r in results],
                          [r["L2_velocity"] for r in results],
-                         save_path=str(Path(out_dir) / "L2_convergence.pdf"),
+                         save_path=str(Path(out_dir) / f"L2_convergence.{fmt}"),
                          title=f"$L_2$ error vs resolution, reference: $N_y$={ref.ny}",
-                         modules=modules)
+                         modules=modules, mode=mode)
     return results

@@ -160,17 +160,20 @@ class OptimizationRecorder:
 
     def __init__(self, fps=15, dpi=150, gamma=0.6, vmax_fwd=None,
                  bitrate=4000, g_linthresh_pct=50, still_dpi=300,
-                 modules=None, orientation="vertical", fmt="mp4", every=1):
+                 modules=None, orientation="vertical", mode="poster",
+                 fmt="mp4", every=1):
         self.fps = fps
         self.dpi = dpi
         # Field panel side, in poster modules, and where the metrics sit
-        # beside it. The whole layout follows from the pair — see _layout.
-        self.modules = modules 
-        if modules is not None:
-            self.modules = modules
-        else:
-            self.modules = 11 if orientation == "vertical" else 12
+        # beside it. The whole layout follows from the pair — see _layout,
+        # which wants it odd for vertical and even for horizontal.
+        if modules is None:
+            modules = 11 if orientation == "vertical" else 12
+        self.modules = modules
         self.orientation = orientation
+        # "poster" or "readme" — how much margin the page carries, see
+        # style.MARGINS.
+        self.mode = mode
         # "mp4" or "gif". `every` records one frame in N, which is how a GIF
         # of a 200-iteration run stays small enough for a README.
         self.fmt = fmt
@@ -253,12 +256,20 @@ class OptimizationRecorder:
                     fields are 2F + 2 = 4m + 6, and so are the four metric
                     rows.
 
-        Either way F must leave a metric panel at least 4.53 modules wide, the
-        longest title — so F >= 11 vertical, F >= 12 horizontal.
+        `modules` is rounded DOWN to whatever keeps the field square — odd
+        for vertical, even for horizontal — so either parity is safe to pass.
+
+        Either way it must leave a metric panel at least 4.53 modules wide,
+        the longest title: F >= 11 vertical, F >= 12 horizontal.
         """
-        F = self.modules
+        # The metric side comes first and the field is rebuilt from it, so
+        # the field is square whatever `modules` was asked for. Taking F as
+        # given instead left the field a module wider than it was tall at the
+        # wrong parity, because the integer division that sizes m threw the
+        # odd module away.
         if self.orientation == "vertical":
-            m = (F - 1) // 2
+            m = (self.modules - 1) // 2
+            F = 2 * m + 1
             cols = [m, 1, m, 1, m, 1, m]
             rows = [F, 1, F, 3, m, 3, m]
             fields = [(0, slice(0, 3)), (0, slice(4, 7)),
@@ -266,7 +277,8 @@ class OptimizationRecorder:
             metrics = [(4, 0), (4, 2), (4, 4), (4, 6),
                        (6, 0), (6, 2), (6, 4), (6, 6)]
         else:
-            m = (F - 2) // 2
+            m = (self.modules - 2) // 2
+            F = 2 * m + 2
             cols = [F, 2, F, 2, m, 2, m]
             rows = [m, 2, m, 2, m, 2, m]
             fields = [(slice(0, 3), 0), (slice(0, 3), 2),
@@ -284,16 +296,17 @@ class OptimizationRecorder:
     def _build_figure(self, nx, ny):
         """Everything except the writer: axes, artists, ticks, styling."""
         cols, rows, fields, metrics = self._layout()
-        total_w = sum(cols) + 2                 # + one module of margin a side
-        total_h = sum(rows) + 2
+        m = style.MARGINS[self.mode]            # outer margin, in modules
+        total_w = sum(cols) + 2 * m
+        total_h = sum(rows) + 2 * m
 
         unit = style.BASELINE_MM / style.MM_PER_IN
         self.fig = plt.figure(figsize=(total_w * unit, total_h * unit))
         gs = GridSpec(len(rows), len(cols), figure=self.fig,
                       width_ratios=cols, height_ratios=rows,
                       hspace=0, wspace=0,
-                      left=1 / total_w, right=1 - 1 / total_w,
-                      top=1 - 1 / total_h, bottom=1 / total_h)
+                      left=m / total_w, right=1 - m / total_w,
+                      top=1 - m / total_h, bottom=m / total_h)
 
         (self.ax1, self.ax2,
          self.ax3, self.ax4) = [self.fig.add_subplot(gs[c]) for c in fields]
