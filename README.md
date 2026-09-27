@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="results\plots\poster\URSS_poster_final.png" width="100%"/>
+  <img src="results\poster\URSS_poster_final.png" width="100%"/>
 </p>
 
 # Adjoint lattice Boltzmann topology optimization
 
-Design 2D pipe networks by giving the solver only the inlets, the outlets, and a material budget. It returns the geometry that minimises energy dissipation.
+Generate 2D pipe networks by giving the solver only the inlets, the outlets, and a material budget. It returns the geometry that minimises energy dissipation.
 
 Built as a URSS 2026 project at the University of Warwick under Dr Radu Cimpeanu.
 
@@ -14,7 +14,7 @@ Built as a URSS 2026 project at the University of Warwick under Dr Radu Cimpeanu
 
 ## What it is
 
-A discrete-adjoint topology-optimization loop built on a lattice Boltzmann flow solver. Every operator — collision, streaming, boundary conditions — has a hand-derived transpose, verified against finite differences to 10⁻¹¹.
+A discrete-adjoint topology-optimization loop built on a lattice Boltzmann flow solver.
 
 Two repositories:
 
@@ -25,29 +25,43 @@ Two repositories:
 
 ### Flow distributor
 
-Three outlets, each carrying a specified share of the inflow. Two outlets are prescribed directly; the third is a pressure anchor that lets mass conservation close the balance.
+The problem was inspired by the field of microfluidics, where devices such as lab-on-a-chip systems often need one incoming stream divided between several outlets in fixed proportions.
 
-![Distributor variations](docs/readme/distributor_variations.png)
+In this implementation, flow rates are prescribed directly for two outlets, and the third is set by pressure, anchoring the density field to let mass conservation close the balance.
 
-Once the algorithm is ready, the setup is free — change the proportions, move the outlets, add or remove them. The three rows above are the same solver.
+<p align="center">
+  <img src="results\plots\replots\design_variations_combined.png" width="100%"/>
+</p>
+
+Once the algorithm is ready, the setup is customizable. The plots show the diversity of designs generated with the same solver by setting different outflow proportions and assigning outlets to different walls.
 
 ### Mesh independence
 
 The same problem at five resolutions, each compared to the finest.
 
-![Design agreement across resolutions](docs/readme/mesh_agreement.png)
+<p align="center">
+  <img src="results\plots\mesh\mesh_independence_readme_combined.png" width="100%"/>
+</p>
 
-Between 95.3% and 99.3% of cells agree on solid versus fluid, from the coarsest grid to the second-finest. The disagreement sits entirely on the boundaries — coarse and fine designs place the same channels in the same places. Refined, not reinvented.
+We verified the flow solver in the `lbm-2d-python` repository. To verify the produced design, we ran the same problem at five resolutions and compared each to the finest.
 
-The filter radius fixes the smallest feature a design may contain. Held constant as a fraction of the grid, the same physical design appears at every resolution.
+Between 95.3% and 99.3% of cells agree on solid versus fluid, from the coarsest grid to the second-finest.
+
+The disagreement is entirely on the boundaries. Coarse and fine designs place the same channels in the same places. The flow follows — velocity differences sit in the boundary layers and vanish in the channel interior.
+
+The filter radius fixes the smallest feature a design may contain. Held constant as a fraction of the grid, the same physical design appears at every resolution — refined, not reinvented.
 
 ## How it works
+
+<p align="center">
+  <img src="results\animations\pipe_bend_readme_3.gif" width="100%"/>
+</p>
 
 ### Design as a density field
 
 Every cell in the grid carries a continuous variable between 0 and 1. The solver interprets it as friction: at 1 the fluid passes freely; at 0 it is brought to rest. Nothing is ever cut away — cells simply become impassable, and the pipe is whatever path the fluid is still allowed to take. Because the field is continuous, it is differentiable.
 
-### The loop
+### The algorithm
 
 1. Simulate the flow with LBM.
 2. Solve the adjoint — a second simulation, run backwards, that carries the objective back through the flow.
@@ -56,15 +70,13 @@ Every cell in the grid carries a continuous variable between 0 and 1. The solver
 
 ### Why the adjoint
 
-Testing each cell individually would need one full simulation per cell — 4096 of them on a 64×64 grid. The adjoint gets all 4096 sensitivities from **one** extra solve, at any grid size.
+Constructing a gradient by testing each cell individually is computationally expensive. Testing each cell individually would need one full simulation per cell — 4096 of them on a 64×64 grid. Using the adjoint method makes the cost of finding sensitivities independent of the total number of design variables. 
 
-We verified the adjoint gradient matches the finite-difference calculation exactly, cell by cell, to 10⁻¹¹.
-
-Forward velocity, adjoint momentum, sensitivity field, and the design as it develops. The eight lower plots are the diagnostics the optimizer runs on.
+We verified the adjoint gradient matches the finitedifference calculation exactly.
 
 ### Method stack
 
-Brinkman penalisation, discrete adjoint, optimality criteria optimizer with volume constraint, sensitivity filter, continuation on Brinkman penalisation and Heaviside projection.
+Brinkman penalisation, discrete adjoint, optimality criteria optimizer with volume constraint, sensitivity filter, continuation on Brinkman penalisation and Heaviside projection, Parabolic velocity inlet, Zou–He velocity outlets set to a fraction of inlet flux, one pressure outlet, adjoint boundary conditions after Luo et al.
 
 ## Motivation
 

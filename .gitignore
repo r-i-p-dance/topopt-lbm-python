@@ -42,4 +42,6 @@ results/tests/
 
 !results/plots/poster/URSS_poster_final.png
 !results/animations/triple_readme.gif
-
+!results/plots/replots/design_variations_combined.png
+!results/plots/mesh/mesh_independence_readme_combined.png
+!results/animations/pipe_bend_readme_3.gif
