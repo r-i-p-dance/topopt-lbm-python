@@ -72,7 +72,7 @@ def plot_comparison(ref, coarse, result, field_modules, fmt, mode,
         ref.obstacle, obstacle_up,
         path=str(out / f"velocity_{stem}.{fmt}"),
         modules=field_modules,
-        resolutions=(ref.ny, coarse.ny),
+        ny_coarse=coarse.ny,
         mode=mode)
 
     ref_binary = (ref.rho_bar >= 0.5).astype(int)
@@ -82,7 +82,7 @@ def plot_comparison(ref, coarse, result, field_modules, fmt, mode,
         ref.obstacle, obstacle_up,
         path=str(out / f"design_{stem}.{fmt}"),
         modules=field_modules,
-        resolutions=(ref.ny, coarse.ny),
+        ny_coarse=coarse.ny,
         note=f"agreement {100 * result['agreement']:.1f}%",
         field=style.FIELD_DESIGN, mode=mode)
 
