@@ -1,6 +1,6 @@
-<p align="center">
-  <img src="results\poster\URSS_poster_final.png" width="100%"/>
-</p>
+<a href="results/poster/URSS_poster_final.pdf">
+  <img src="results/poster/URSS_poster_final.png" width="100%"/>
+</a>
 
 # Adjoint lattice Boltzmann topology optimization
 
@@ -9,7 +9,7 @@ Generate 2D pipe networks by giving the solver only the inlets, the outlets, and
 Built as a URSS 2026 project at the University of Warwick under Dr Radu Cimpeanu.
 
 <p align="center">
-  <img src="results\animations\triple_readme.gif" width="100%"/>
+  <img src="results/animations/triple_readme_1.gif" width="100%"/>
 </p>
 
 ## What it is
@@ -23,6 +23,16 @@ Two repositories:
 
 ## Results
 
+### Pipe bend
+
+The pipe bend is the standard benchmark in fluid topology optimization — an inlet on the west wall, an outlet on the south wall, and a material budget. It appears in Borrvall & Petersson's founding paper and in most work since, which makes it the natural case to build and validate against.
+
+<p align="center">
+  <img src="results/animations/pipe_bend_readme_3.gif" width="100%"/>
+</p>
+
+Every component was developed and verified here first — the adjoint transposes, the optimality criteria update, the continuation schedule, the sensitivity filter. Only once the bend converged reliably did the formulation extend to the more interesting flow distributor application.
+
 ### Flow distributor
 
 The problem was inspired by the field of microfluidics, where devices such as lab-on-a-chip systems often need one incoming stream divided between several outlets in fixed proportions.
@@ -30,20 +40,18 @@ The problem was inspired by the field of microfluidics, where devices such as la
 In this implementation, flow rates are prescribed directly for two outlets, and the third is set by pressure, anchoring the density field to let mass conservation close the balance.
 
 <p align="center">
-  <img src="results\plots\replots\design_variations_combined.png" width="100%"/>
+  <img src="results/plots/replots/design_variations_combined.png" width="100%"/>
 </p>
 
 Once the algorithm is ready, the setup is customizable. The plots show the diversity of designs generated with the same solver by setting different outflow proportions and assigning outlets to different walls.
 
 ### Mesh independence
 
-The same problem at five resolutions, each compared to the finest.
-
 <p align="center">
-  <img src="results\plots\mesh\mesh_independence_readme_combined.png" width="100%"/>
+  <img src="results/plots/mesh/mesh_independence_readme_combined.png" width="100%"/>
 </p>
 
-We verified the flow solver in the `lbm-2d-python` repository. To verify the produced design, we ran the same problem at five resolutions and compared each to the finest.
+We verified the flow solver in the [`lbm-2d-python`](https://github.com/r-i-p-dance/lbm-2d-python) repository. To verify the produced design, we ran the same problem at five resolutions and compared each to the finest.
 
 Between 95.3% and 99.3% of cells agree on solid versus fluid, from the coarsest grid to the second-finest.
 
@@ -52,10 +60,6 @@ The disagreement is entirely on the boundaries. Coarse and fine designs place th
 The filter radius fixes the smallest feature a design may contain. Held constant as a fraction of the grid, the same physical design appears at every resolution — refined, not reinvented.
 
 ## How it works
-
-<p align="center">
-  <img src="results\animations\pipe_bend_readme_3.gif" width="100%"/>
-</p>
 
 ### Design as a density field
 
@@ -70,13 +74,15 @@ Every cell in the grid carries a continuous variable between 0 and 1. The solver
 
 ### Why the adjoint
 
-Constructing a gradient by testing each cell individually is computationally expensive. Testing each cell individually would need one full simulation per cell — 4096 of them on a 64×64 grid. Using the adjoint method makes the cost of finding sensitivities independent of the total number of design variables. 
+Testing each cell individually would need one full simulation per cell — 4096 of them on a 64×64 grid. Using the adjoint method makes the cost of finding sensitivities independent of the total number of design variables. 
 
-We verified the adjoint gradient matches the finitedifference calculation exactly.
+**We verified the adjoint gradient matches the finite difference calculation exactly.**
 
 ### Method stack
 
-Brinkman penalisation, discrete adjoint, optimality criteria optimizer with volume constraint, sensitivity filter, continuation on Brinkman penalisation and Heaviside projection, Parabolic velocity inlet, Zou–He velocity outlets set to a fraction of inlet flux, one pressure outlet, adjoint boundary conditions after Luo et al.
+**Optimization** — Brinkman penalisation, discrete adjoint, optimality criteria optimizer with volume constraint, sensitivity filter, continuation on Brinkman penalisation and Heaviside projection.
+
+**Boundaries** — parabolic velocity inlet, Zou–He velocity outlets set to a fraction of inlet flux, one pressure outlet as the density anchor, adjoint boundary conditions after Luo et al.
 
 ## Motivation
 
