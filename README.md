@@ -61,24 +61,24 @@ The filter radius fixes the smallest feature a design may contain. Held constant
 
 ## How it works
 
-### Design as a density field
+### 1. Design as a density field
 
 Every cell in the grid carries a continuous variable between 0 and 1. The solver interprets it as friction: at 1 the fluid passes freely; at 0 it is brought to rest. Nothing is ever cut away — cells simply become impassable, and the pipe is whatever path the fluid is still allowed to take. Because the field is continuous, it is differentiable.
 
-### The algorithm
+### 2. The algorithm
 
 1. Simulate the flow with LBM.
 2. Solve the adjoint — a second simulation, run backwards, that carries the objective back through the flow.
 3. Construct the sensitivity field: how changing each cell's density decreases energy dissipation.
 4. Update every cell. Iterate until dissipation and greyness both settle.
 
-### Why the adjoint
+### 3. Why the adjoint
 
 Testing each cell individually would need one full simulation per cell — 4096 of them on a 64×64 grid. Using the adjoint method makes the cost of finding sensitivities independent of the total number of design variables. 
 
 **We verified the adjoint gradient matches the finite difference calculation exactly.**
 
-### Method stack
+### 4. Method stack
 
 **Optimization** — Brinkman penalisation, discrete adjoint, optimality criteria optimizer with volume constraint, sensitivity filter, continuation on Brinkman penalisation and Heaviside projection.
 
